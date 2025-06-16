@@ -11,5 +11,6 @@ language = "python3"
 requiredFiles = [".replit", "replit.nix"]
 
 [deployment]
-run = ["python3", "main.py"]
-deploymentTarget = "cloudrun"
+run = ["sh", "-c", "cd twitter_downloader_bot && python main.py"]
+deploymentTarget = "gce"
+ignorePorts = true
