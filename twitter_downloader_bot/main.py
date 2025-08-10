@@ -48,16 +48,21 @@ class MediaDownloader:
         twitter_patterns = [
             r'https?://(www\.)?(twitter|x)\.com/\w+/status/\d+',
             r'https?://(www\.)?t\.co/\w+',
+            r'https?://(mobile\.)?twitter\.com/\w+/status/\d+',
+            r'https?://(mobile\.)?x\.com/\w+/status/\d+',
         ]
         return any(re.match(pattern, url) for pattern in twitter_patterns)
     
     def is_youtube_shorts_url(self, url: str) -> bool:
-        """Check if URL is a YouTube Shorts"""
-        shorts_patterns = [
+        """Check if URL is a YouTube Shorts or regular YouTube video"""
+        youtube_patterns = [
             r'https?://(www\.)?youtube\.com/shorts/[\w-]+',
             r'https?://youtu\.be/[\w-]+',
+            r'https?://(www\.)?youtube\.com/watch\?v=[\w-]+',
+            r'https?://(m\.)?youtube\.com/shorts/[\w-]+',
+            r'https?://(m\.)?youtube\.com/watch\?v=[\w-]+',
         ]
-        return any(re.match(pattern, url) for pattern in shorts_patterns)
+        return any(re.match(pattern, url) for pattern in youtube_patterns)
     
     async def download_media(self, url: str) -> Optional[tuple[str, dict]]:
         """Download media from URL and return file path and metadata"""
@@ -135,18 +140,66 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send a message when the command /help is issued."""
     help_text = (
-        "📋 How to use this bot:\n\n"
+        "📋 **How to use this bot:**\n\n"
         "1. Send me a Twitter/X post URL\n"
         "2. Send me a YouTube shorts URL\n"
         "3. I'll download and send you the video\n\n"
-        "Supported formats:\n"
-        "• https://twitter.com/user/status/...\n"
-        "• https://x.com/user/status/...\n"
-        "• https://youtube.com/shorts/...\n"
-        "• https://youtu.be/...\n\n"
-        "⚠️ File size limit: 50MB"
+        "**Supported formats:**\n"
+        "• `https://twitter.com/user/status/...`\n"
+        "• `https://x.com/user/status/...`\n"
+        "• `https://youtube.com/shorts/...`\n"
+        "• `https://youtu.be/...`\n\n"
+        "**Commands:**\n"
+        "/start - Show welcome message\n"
+        "/help - Show this help\n"
+        "/about - About this bot\n"
+        "/stats - Bot statistics\n\n"
+        "⚠️ **Limits:**\n"
+        "• File size: 50MB max\n"
+        "• Duration: 10 minutes max"
     )
-    await update.message.reply_text(help_text)
+    await update.message.reply_text(help_text, parse_mode='Markdown')
+
+async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Send information about the bot."""
+    about_text = (
+        "🤖 **ScrapeWebTeleBot**\n\n"
+        "A Telegram bot that downloads videos from:\n"
+        "• Twitter/X posts 🐦\n"
+        "• YouTube shorts 🎥\n\n"
+        "**Features:**\n"
+        "✅ Fast downloads\n"
+        "✅ Rich metadata display\n"
+        "✅ Error handling\n"
+        "✅ File size validation\n"
+        "✅ Multiple URL formats\n\n"
+        "**Built with:**\n"
+        "• Python 3.11+\n"
+        "• python-telegram-bot\n"
+        "• yt-dlp\n\n"
+        "Made with ❤️ for the community!"
+    )
+    await update.message.reply_text(about_text, parse_mode='Markdown')
+
+# Global stats (in a real app, this would be in a database)
+download_stats = {
+    'total_downloads': 0,
+    'twitter_downloads': 0,
+    'youtube_downloads': 0,
+    'failed_downloads': 0
+}
+
+async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Send bot statistics."""
+    stats_text = (
+        f"📊 **Bot Statistics**\n\n"
+        f"📥 Total downloads: {download_stats['total_downloads']}\n"
+        f"🐦 Twitter/X: {download_stats['twitter_downloads']}\n"
+        f"🎥 YouTube: {download_stats['youtube_downloads']}\n"
+        f"❌ Failed: {download_stats['failed_downloads']}\n\n"
+        f"✨ Success rate: {(download_stats['total_downloads'] / max(download_stats['total_downloads'] + download_stats['failed_downloads'], 1) * 100):.1f}%"
+    )
+    await update.message.reply_text(stats_text, parse_mode='Markdown')
 
 async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle URL messages and download media"""
@@ -196,6 +249,13 @@ async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
                         parse_mode='Markdown'
                     )
                 
+                # Update statistics
+                download_stats['total_downloads'] += 1
+                if downloader.is_twitter_url(url):
+                    download_stats['twitter_downloads'] += 1
+                elif downloader.is_youtube_shorts_url(url):
+                    download_stats['youtube_downloads'] += 1
+                
                 # Clean up
                 try:
                     os.unlink(file_path)
@@ -203,11 +263,13 @@ async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
                     pass
                     
             else:
+                download_stats['failed_downloads'] += 1
                 await update.message.reply_text(
                     f"❌ Failed to download media from {platform}.\n"
                     "The file could not be saved properly."
                 )
         else:
+            download_stats['failed_downloads'] += 1
             await update.message.reply_text(
                 f"❌ Failed to download media from {platform}.\n"
                 "Possible reasons:\n"
@@ -219,6 +281,7 @@ async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     
     except Exception as e:
         logger.error(f"Error handling URL {url}: {e}")
+        download_stats['failed_downloads'] += 1
         await update.message.reply_text(
             f"❌ Error downloading from {platform}. Please try again later.\n"
             f"Error details: {str(e)[:100]}..."
@@ -245,6 +308,8 @@ def main() -> None:
     # Add handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("about", about_command))
+    application.add_handler(CommandHandler("stats", stats_command))
     
     # Handle URLs (any message that looks like a URL)
     url_filter = filters.TEXT & filters.Regex(r'https?://')
